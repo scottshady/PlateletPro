@@ -1146,8 +1146,6 @@ def process_fa(video_path, output_file_path):
         height, width = frame.shape[:2]
         mid_x = width // 2
         mid_y = height // 2
-
-        # 四个象限 (x, y, w, h)
         quadrants = [
             (0, 0, mid_x, mid_y),                  # 左上
             (mid_x, 0, width - mid_x, mid_y),      # 右上
@@ -1164,48 +1162,64 @@ def process_fa(video_path, output_file_path):
             frame_results.append(mean_intensity * scale_factor)
         return frame_results
 
-    # 打开视频文件
+    def replace_outliers(data, threshold_factor=3):
+        """基于相邻差值的离群点替换"""
+        import numpy as np
+        data = np.array(data, dtype=float)
+        if len(data) < 3:
+            return data.tolist()
+        diffs = np.diff(data)
+        threshold = threshold_factor * np.std(diffs)
+        for i in range(1, len(data) - 1):
+            if abs(data[i] - data[i-1]) > threshold and abs(data[i] - data[i+1]) > threshold:
+                data[i] = (data[i-1] + data[i+1]) / 2
+        return data.tolist()
+
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     frame_count = 0
 
-    # 读取第一帧来获取尺寸信息
     ret, first_frame = cap.read()
     if not ret:
         print(f"无法读取视频: {video_path}")
         return
 
-    # 转换为灰度图
     first_frame_gray = cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY)
-
-    # 获取四个象限
     quadrants = get_quadrants(first_frame_gray)
-
-    # 重置视频到开始
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
-    # 创建输出CSV文件
     output_file_path_csv = output_file_path.replace('.xlsx', '.csv')
+    results_buffer = []  # 缓存所有结果，便于后续整体去异常值
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        if frame_count % int(fps) == 0:
+            frame_results = analyze_frame(gray_frame, quadrants)
+            results_buffer.append(frame_results)
+
+        frame_count += 1
+
+    cap.release()
+
+    # 对每一列单独进行离群值替换
+    import numpy as np
+    results_array = np.array(results_buffer)
+    for col in range(results_array.shape[1]):
+        results_array[:, col] = replace_outliers(results_array[:, col])
+
+    # 保存到 CSV
+    import csv
     with open(output_file_path_csv, mode='w', newline='') as file:
         writer = csv.writer(file)
         writer.writerow(['time(sec)', 'top_left', 'top_right', 'bottom_left', 'bottom_right'])
+        for t, row in enumerate(results_array):
+            writer.writerow([t] + row.tolist())
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            # 转换为灰度图
-            gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-            # 每秒采样一次
-            if frame_count % int(fps) == 0:
-                frame_results = analyze_frame(gray_frame, quadrants)
-                writer.writerow([frame_count // int(fps)] + frame_results)
-
-            frame_count += 1
-
-    cap.release()
     print(f"完成视频分析: {video_path}")
 
 
