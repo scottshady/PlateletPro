@@ -1142,49 +1142,30 @@ def xvg2csv(input_folder, output_dir):
 # 处理血流灌注(Flow Adhesion)视频，分析五个固定区域的荧光强度
 # 每秒采样一次，计算左上、右上、左下、右下、中心五个区域的平均强度值
 def process_fa(video_path, output_file_path):
-    def get_fixed_squares(frame):
+    def get_quadrants(frame):
         height, width = frame.shape[:2]
-        # 计算正方形边长为最短边的1/3
-        square_size = min(width, height) // 3
+        mid_x = width // 2
+        mid_y = height // 2
 
-        # 计算中心点坐标
-        center_x = width // 2
-        center_y = height // 2
-
-        # 计算正方形左上角坐标的偏移量
-        offset = square_size // 2
-
-        # 定义5个固定区域的左上角坐标
-        squares = [
-            # 左上
-            (0, 0),
-            # 右上
-            (width - square_size, 0),
-            # 左下
-            (0, height - square_size),
-            # 右下
-            (width - square_size, height - square_size),
-            # 中心
-            (center_x - offset, center_y - offset)
+        # 四个象限 (x, y, w, h)
+        quadrants = [
+            (0, 0, mid_x, mid_y),                  # 左上
+            (mid_x, 0, width - mid_x, mid_y),      # 右上
+            (0, mid_y, mid_x, height - mid_y),     # 左下
+            (mid_x, mid_y, width - mid_x, height - mid_y)  # 右下
         ]
+        return quadrants
 
-        return squares, square_size
-
-    # visualize_fa_files 函数
-    # 收集并整合所有FA数据文件，生成可视化汇总文件
-    # 将多个FA文件的时间序列数据合并为一个CSV文件，便于后续分析和绘图
-    def analyze_frame(frame, squares, square_size, scale_factor=10000000 / 255):
+    def analyze_frame(frame, regions, scale_factor=10000000 / 255):
         frame_results = []
-        for x, y in squares:
-            square = frame[y:y + square_size, x:x + square_size]
-            mean_intensity = square.mean()
+        for x, y, w, h in regions:
+            roi = frame[y:y + h, x:x + w]
+            mean_intensity = roi.mean()
             frame_results.append(mean_intensity * scale_factor)
         return frame_results
 
     # 打开视频文件
     cap = cv2.VideoCapture(video_path)
-
-    # 获取视频基本信息
     fps = cap.get(cv2.CAP_PROP_FPS)
     frame_count = 0
 
@@ -1197,8 +1178,8 @@ def process_fa(video_path, output_file_path):
     # 转换为灰度图
     first_frame_gray = cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY)
 
-    # 获取固定采样区域
-    squares, square_size = get_fixed_squares(first_frame_gray)
+    # 获取四个象限
+    quadrants = get_quadrants(first_frame_gray)
 
     # 重置视频到开始
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -1207,7 +1188,7 @@ def process_fa(video_path, output_file_path):
     output_file_path_csv = output_file_path.replace('.xlsx', '.csv')
     with open(output_file_path_csv, mode='w', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow(['time(sec)', 'top_left', 'top_right', 'bottom_left', 'bottom_right', 'center'])
+        writer.writerow(['time(sec)', 'top_left', 'top_right', 'bottom_left', 'bottom_right'])
 
         while cap.isOpened():
             ret, frame = cap.read()
@@ -1219,13 +1200,14 @@ def process_fa(video_path, output_file_path):
 
             # 每秒采样一次
             if frame_count % int(fps) == 0:
-                frame_results = analyze_frame(gray_frame, squares, square_size)
+                frame_results = analyze_frame(gray_frame, quadrants)
                 writer.writerow([frame_count // int(fps)] + frame_results)
 
             frame_count += 1
 
     cap.release()
     print(f"完成视频分析: {video_path}")
+
 
 # --- reserved for extension ---
 def future_extension_hook():
