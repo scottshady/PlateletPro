@@ -1063,32 +1063,55 @@ def visualize_teg_files(input_folder, output_folder):
 # 处理酶标仪(MicroReader)数据文件，转换为标准格式
 # 将96孔板格式数据重组为更易于分析的表格形式
 def process_mr(file_path, output_file_path):
+    # 1. 读取数据
+    # skiprows=1 跳过第一行标题（Reading 1）
+    # header=None 方便后续通过索引切片
     if file_path.endswith('.csv'):
-        df = pd.read_csv(file_path, names=["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"], encoding='GB18030')
+        df = pd.read_csv(file_path, header=None, skiprows=1, encoding='GB18030')
     else:
-        df = pd.read_excel(file_path, names=["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"])
-    data = df.iloc[2:, :]
-    result = pd.DataFrame()
+        df = pd.read_excel(file_path, header=None, skiprows=1)
+
+    # 2. 提取纯数据区域 (第 1 到 12 列)
+    # 第一列 (索引 0) 是 A, B, C... 标签，予以排除
+    data_only = df.iloc[:, 1:13]
+
+    # 3. 准备容器和标签
+    all_plates = []
     letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
-    numbers = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
+    numbers = [str(i) for i in range(1, 13)]
+    well_labels = [f'{l}{n}' for l in letters for n in numbers]  # 生成 A1, A2... H12
+
     i = 0
     while True:
-        table = data.iloc[i * 9:i * 9 + 8, :]
-        if table.empty:
+        # 假设每块板 8 行，板间有 1 个空行（跨度为 9）
+        # 如果你的文件里板子是紧挨着的，请将 9 改为 8
+        start_row = i * 9
+        table = data_only.iloc[start_row: start_row + 8, :]
+
+        # 检查是否还有数据
+        if table.empty or len(table) < 8:
             break
-        table = table.stack().reset_index(drop=True)
-        result = pd.concat([result, table], axis=1)
+
+        # 4. 关键点：将 8x12 压平为一行
+        # .stack().values 会按 A1, A2, A3... 的顺序生成一个 1D 数组
+        flattened_row = table.stack().values
+        all_plates.append(flattened_row)
         i += 1
-    result.columns = [str(i + 1) for i in range(len(result.columns))]
-    new_column_length = len(result)
-    new_column_values = [f'{letter}{number}' for letter in letters for number in numbers][:new_column_length]
-    result.insert(0, 'New_Column', new_column_values)
-    result = result.T
+
+    # 5. 构建最终 DataFrame
+    # 将列表转换为 DataFrame，并以孔位作为列名
+    result = pd.DataFrame(all_plates, columns=well_labels)
+
+    # 可选：插入一列显示这是第几次读数
+    result.insert(0, 'Reading_Index', [f'Reading_{j + 1}' for j in range(len(result))])
+
+    # 6. 保存
     if file_path.endswith('.csv'):
         result.to_csv(output_file_path, index=False)
     else:
         result.to_excel(output_file_path, index=False)
-    print(f"Analyzing: {output_file_path}")
+
+    print(f"处理完成！列标题为孔位，每一行对应一次读数。保存至: {output_file_path}")
 
 
 # xvg2csv 函数
