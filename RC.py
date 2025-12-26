@@ -1599,12 +1599,21 @@ if __name__ == "__main__":
     from PyQt6.QtGui import QPixmap
     from PyQt6.QtWidgets import QApplication, QSplashScreen
     from PyQt6.QtCore import Qt, QTimer
+    import sys
+    import os
+
+    # --- 新增：尝试导入并处理 PyInstaller 的启动画面 ---
+    try:
+        import pyi_splash
+    except ImportError:
+        pyi_splash = None
+
 
     def resource_path(relative_path):
-        import sys, os
         if hasattr(sys, '_MEIPASS'):
             return os.path.join(sys._MEIPASS, relative_path)
         return os.path.join(os.path.abspath("."), relative_path)
+
 
     app = QApplication(sys.argv)
 
@@ -1630,11 +1639,20 @@ if __name__ == "__main__":
 
     splash.show()
 
+
     def start_app():
         global main_window
+
+        # 1. 关闭 PyQt6 的 splash
         splash.close()
+
+        if pyi_splash:
+            pyi_splash.close()
+
+        # 3. 显示主窗口
         main_window = FileProcessorApp()
         main_window.show()
 
+
     QTimer.singleShot(2500, start_app)
-    sys.exit(app.exec())
+    sys.exit(app.exec())exec())
